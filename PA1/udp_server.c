@@ -29,6 +29,7 @@ int main(int argc, char **argv){
     int n; //Message byte size 
 
     char buf[BUFFER_SIZE];
+    char reply_buf[BUFFER_SIZE];
     char *hostaddrp; 
 
     struct sockaddr_in serveraddr; 
@@ -102,18 +103,32 @@ int main(int argc, char **argv){
         printf("server received datagram from %s (%s)\n",hostp->h_name, hostaddrp);
         printf("server received %d/%d bytes: %s\n", strlen(buf), n, buf);
 
-        n = sendto(sockfd, buf, strlen(buf), 0, (struct sockaddr *) &clientaddr, clientlen);
+        //n = sendto(sockfd, buf, strlen(buf), 0, (struct sockaddr *) &clientaddr, clientlen);
         if(n < 0){
             error("ERROR in sendto");
         }
-
-        printf("%s\n",buf);
-        printf("Length: %d\n", strlen(buf));
+        bzero(reply_buf,BUFFER_SIZE);
         if(strncmp(buf,"ls",2) == 0){
-            printf("Len Processed\n");
+            printf("ls Processed\n");
+            FILE *data_in;
+            data_in = popen("ls", "r");
+            if(data_in == NULL){
+                printf("NOTHING\n");
+            }
+            while(fgets(reply_buf,BUFFER_SIZE,data_in) != NULL){
+               printf("%s",reply_buf); 
+               printf("%d",strlen(reply_buf));
+            };
+            printf("\n");
+            
+            pclose(data_in);
+            n = sendto(sockfd, reply_buf, BUFFER_SIZE, 0, (struct sockaddr *) &clientaddr, clientlen);
         }
         else if(strncmp(buf,"exit", 4) == 0){
             printf("Exit Processed\n");
+            
+            strcpy(reply_buf, "Goodbye!\n");
+            n = sendto(sockfd, reply_buf, BUFFER_SIZE, 0, (struct sockaddr *) &clientaddr, clientlen);
         }
         else if(strncmp(buf,"delete", 6) == 0){
             printf("Delete Processed\n");
@@ -128,7 +143,7 @@ int main(int argc, char **argv){
             printf("Invalid Command\n");
         }
 
-        printf("SIZE: %d\n",sizeof("len\n"));
+        
     }
 
 
