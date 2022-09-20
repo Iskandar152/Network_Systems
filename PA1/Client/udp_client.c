@@ -116,8 +116,6 @@ int main(int argc, char **argv) {
 
           bzero(put_filename,30);
           n = recvfrom(sockfd, put_filename, 30,0,(struct sockaddr *)&serveraddr,&serverlen);
-          printf("%d\n",n);
-          printf("%s\n",put_filename);
           
           if(access(put_filename,R_OK) != 0){
               printf("File not found\n");
@@ -135,38 +133,26 @@ int main(int argc, char **argv) {
           input = fopen(put_filename,"rb");
           char written_convert[10];
           bzero(int_converter,10);
-          
-          read = fread(input_buff, 1, sizeof input_buff, input);
-          printf("READ: %d\n",read);
-          snprintf(int_converter, 10, "%d", read);
-          printf("INT CONVERT: %s\n", int_converter);
-          n = sendto(sockfd, int_converter, strlen(int_converter), 0, (struct sockaddr *)&serveraddr, serverlen);
-          n = sendto(sockfd, input_buff, read, 0, (struct sockaddr *)&serveraddr, serverlen);
-          printf("N SENT: %d\n",n);
-          n = recvfrom(sockfd, written_convert, 10,0,(struct sockaddr *)&serveraddr,&serverlen);
-          written = atoi(written_convert);
-          printf("WRITTEN: %d\n", written);
-          /*
+
           do{
-            printf("???\n");
             read = fread(input_buff, 1, sizeof(input_buff), input);
-            printf("?\n");
-            snprintf(int_converter, 10, "%d", read);
-            printf("?\n");
+            snprintf(int_converter, 10, "%ld", read);
             n = sendto(sockfd, int_converter, strlen(int_converter), 0, (struct sockaddr *)&serveraddr, serverlen);
-            printf("?\n");
+            n = sendto(sockfd, input_buff, read, 0, (struct sockaddr *)&serveraddr, serverlen);
+
             if(read){
-              
+              n = recvfrom(sockfd, written_convert, 10,0,(struct sockaddr *)&serveraddr,&serverlen);
+              written = atoi(written_convert);
             }
             else{
               written = 0;
             }
-
-
+            bzero(written_convert,10);
+            bzero(int_converter,10);
           } while((read > 0) && (written == read));
-          */
-
           
+
+          fclose(input);
 
 
           
@@ -175,11 +161,14 @@ int main(int argc, char **argv) {
         }
         case 4:
         {
+          size_t read;
+          size_t written;
+          unsigned char output_buffer[BUFFER_SIZE];
           char file_name[15];
+
           printf("GET\n");
           if(strncmp(buf,"1",1) == 0){
             printf("File does not exist\n");
-            printf("%s\n", buf);
             bzero(buf,BUFFER_SIZE);
             break;
           }
@@ -192,25 +181,36 @@ int main(int argc, char **argv) {
           
           //Receive number of reads required 
           n = recvfrom(sockfd, buf, BUFFER_SIZE,0,(struct sockaddr *)&serveraddr,&serverlen);
-          printf("NUMREADS: %s\n", buf);
 
-          num_reads = atoi(buf);
-          FILE *test_file;
-          test_file = fopen(file_name,"wb+");
-          for(int i = 0; i < num_reads; i++){
-            n = recvfrom(sockfd, packet_recv, BUFFER_SIZE,0,(struct sockaddr *)&serveraddr,&serverlen);
-            printf("SIZE: %d\n", n);
-            fwrite(packet_recv, BUFFER_SIZE, BUFFER_SIZE, test_file);
-            for(int j = 0; j < BUFFER_SIZE; j++){     
-              printf("\x1B[31m%d",j);
-              printf("\x1B[0m%x",packet_recv[j]);
+          
+          FILE *output;
+          output = fopen(file_name,"wb");
+          char read_convert[10];
+          char int_converter[10];
+          bzero(int_converter,10);
+          bzero(read_convert,10);
+          
+          do{
+            n = recvfrom(sockfd, read_convert, 10,0,(struct sockaddr *)&serveraddr,&serverlen);
+            read = atoi(read_convert);
+            n = recvfrom(sockfd, output_buffer, BUFFER_SIZE,0,(struct sockaddr *)&serveraddr,&serverlen);
+
+            if(read){
+              written = fwrite(output_buffer, 1, read, output);
+              snprintf(int_converter, 10, "%ld", written);
+              n = sendto(sockfd, int_converter, strlen(int_converter), 0, (struct sockaddr *)&serveraddr, serverlen);
             }
-            printf("\n");
-            //bzero(packet_recv,BUFFER_SIZE);
-            
-          }
+            else{
+              written = 0;
+            }
+            bzero(output_buffer, BUFFER_SIZE);
+            bzero(int_converter,10);
+            bzero(read_convert,10);
 
-          fclose(test_file);
+            
+          } while((read > 0) && (written == read));
+
+          fclose(output);
         }
           break;
 

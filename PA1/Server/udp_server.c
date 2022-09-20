@@ -101,7 +101,7 @@ int main(int argc, char **argv){
             error("ERROR ON inet_ntoa\n");
         }
         printf("server received datagram from %s (%s)\n",hostp->h_name, hostaddrp);
-        printf("server received %d/%d bytes: %s\n", strlen(buf), n, buf);
+        printf("server received %ld/%d bytes: %s\n", strlen(buf), n, buf);
 
         if(n < 0){
             error("ERROR in sendto");
@@ -111,7 +111,10 @@ int main(int argc, char **argv){
 
         bzero(reply_buf,BUFFER_SIZE);
 
-
+        /*
+        COMMAND HANDLING
+        ==================================================================================================
+        */
         if(strncmp(buf,"ls",2) == 0){
             FILE *data_in;
             data_in = popen("ls", "r");
@@ -138,28 +141,30 @@ int main(int argc, char **argv){
             n = sendto(sockfd, output, BUFFER_SIZE, 0, (struct sockaddr *) &clientaddr, clientlen);
         }
         else if(strncmp(buf,"exit", 4) == 0){
-            printf("Exit Processed\n");
-            
             strcpy(reply_buf, "Goodbye!\n");
+            //Sending a goodbye issue to client 
             n = sendto(sockfd, reply_buf, BUFFER_SIZE, 0, (struct sockaddr *) &clientaddr, clientlen);
         }
         else if(strncmp(buf,"delete", 6) == 0){
+            //Directory holds the entire path to the file to delete 
             char directory[BUFFER_SIZE];
+            //Getting the current directory 
             getcwd(directory, sizeof(directory));
 
                 
-            
+            //File name without all the path information 
             char del_file[BUFFER_SIZE];
             bzero(del_file,BUFFER_SIZE);
             bzero(reply_buf,BUFFER_SIZE);
-
+            //7 is the size of the word "delete" plus a space 
             for(int i = 7; i < strlen(buf) - 1; i++){
                 del_file[i - 7] = buf[i];
             }
-           
+            //Making sure there's an end line at the end 
             del_file[strlen(buf) - 1] = '\0';
-
+            //Putting together the directory plus file for full path 
             strcat(directory,del_file);
+            //Remove the file (checks if the removal was successful)
             if(!remove(del_file)){
                 reply_buf[0] = '0';
                 printf("File %s removed successfully\n", del_file);
@@ -172,8 +177,6 @@ int main(int argc, char **argv){
             }
         }
         else if(strncmp(buf,"put", 3) == 0){
-            printf("Put Processed\n");
-
             /*
             Set up directory, buffers, and other variables
             ======================================================================================================================================
@@ -215,56 +218,74 @@ int main(int argc, char **argv){
             //If file is in a subdirectory structure, then we send back the pure file name to the client 
             //Otherwise we already have the pure file name to send in put_file
             if(subdir){
-                printf("SENT FILE NAME UNDER ABNORMAL DIR\n");
                 n = sendto(sockfd, pure_file_name, strlen(pure_file_name), 0, (struct sockaddr *) &clientaddr, clientlen);
             }
             else{
-                printf("SENT: %s\n",put_file);
                 n = sendto(sockfd, put_file, strlen(put_file), 0, (struct sockaddr *) &clientaddr, clientlen);
             }
 
             //Does file exist to copy from to server 
             bzero(buf,BUFFER_SIZE);
             n = recvfrom(sockfd,buf,BUFFER_SIZE,0, (struct sockaddr *) &clientaddr,&clientlen);
-            printf("BUFFER:%s\n",buf);
 
-
-            printf("DIRECTORY: %s\n", directory);
 
             //===================================================================================================================================
             
             FILE *output;
             output = fopen(put_file,"wb");
+            //Stores the read data received from client 
             char read_convert[10];
+            //int_converter will hold the amount of written data to be sent to the client 
             char int_converter[10];
+            //Clearing the buffers just in case 
             bzero(int_converter,10);
             bzero(read_convert,10);
 
-
-            n = recvfrom(sockfd,read_convert,10,0, (struct sockaddr *) &clientaddr,&clientlen);
-            read = atoi(read_convert);
-            n = recvfrom(sockfd,output_buffer,BUFFER_SIZE,0, (struct sockaddr *) &clientaddr,&clientlen);
-            printf("N SENT: %d\n",n);
-            written = fwrite(output_buffer, 1, read, output);
-            printf("WRITTEN: %d\n", written);
-            snprintf(int_converter,10,"%d",written);
-
-            n = sendto(sockfd, int_converter, strlen(int_converter), 0, (struct sockaddr *) &clientaddr, clientlen);
-            /*
+            //Do while is used because we need to try fetching data atleast once 
+            //to determine if we continue the loop 
+            //Used this as a source: https://stackoverflow.com/questions/5263018/copying-binary-files
             do{
-                printf("NUM:%s\n",int_convert);
-                n = recvfrom(sockfd,int_convert,10,0, (struct sockaddr *) &clientaddr,&clientlen);
-                printf("Num: %s\n",int_convert);
+                //Client is reading in file, read in how much data the client got from the file 
+                n = recvfrom(sockfd,read_convert,10,0, (struct sockaddr *) &clientaddr,&clientlen);
+                //Converting the string we received into an integer
+                read = atoi(read_convert);
+                //Receive the actual packet (max size is 1024 bits);
+                n = recvfrom(sockfd,output_buffer,BUFFER_SIZE,0, (struct sockaddr *) &clientaddr,&clientlen);
+
+                if(read){
+                    //If we actually were able to get some data, we start writing this data 
+                    //into a file of the same name the client is sending 
+                    written = fwrite(output_buffer, 1, read, output);
+                    //snprintf is used to convert the integer into a string to be sent over
+                    snprintf(int_converter,10,"%ld",written);
+                    //Send how much data was written in (Ideally will be equal to the number of data the client read in);
+                    n = sendto(sockfd, int_converter, strlen(int_converter), 0, (struct sockaddr *) &clientaddr, clientlen);
+                }
+                else{
+                    //If read data is 0, we set written to 0 as well. We will be leaving the loop at this point 
+                    written = 0;
+                }
+                bzero(output_buffer,BUFFER_SIZE);
+                bzero(int_converter,10);
+                bzero(read_convert,10);
 
             } while((read > 0) && (written == read));
-            */
+            
+            //Close the file 
             fclose(output);
         }
         else if(strncmp(buf,"get", 3) == 0){
 
             /*
-             *Setting up the directory from which to get the file 
+             * Setting up the directory from which to get the file 
+             * Setting up buffers and other variables. Similar to 
+             * the put routine above
             */
+            size_t read;
+            size_t written;
+            unsigned char input_buff[BUFFER_SIZE];
+            bzero(input_buff,BUFFER_SIZE);
+            char int_converter[10];
 
             char directory[BUFFER_SIZE];
             bzero(directory,BUFFER_SIZE);
@@ -274,7 +295,7 @@ int main(int argc, char **argv){
             bzero(get_file,BUFFER_SIZE);
             bzero(reply_buf,BUFFER_SIZE);
             
-            
+            //Reading in data after the put command ('put' is 3 characters plus the space)
             for(int i = 4; i < strlen(buf) - 1; i++){
                     get_file[i - 4] = buf[i];
             }
@@ -290,61 +311,41 @@ int main(int argc, char **argv){
                 n = sendto(sockfd, reply_buf, 1, 0, (struct sockaddr *) &clientaddr, clientlen);
             }
             else{
-                /*
-                Sending packets with file 
-                */
-
                 //Send confirmation
                 reply_buf[0] = '0';
                 n = sendto(sockfd, reply_buf, 1, 0, (struct sockaddr *) &clientaddr, clientlen);
                 
                 //Send file name
                 n = sendto(sockfd, get_file, 15, 0, (struct sockaddr *) &clientaddr, clientlen);
-
+                n = sendto(sockfd, get_file, 15, 0, (struct sockaddr *) &clientaddr, clientlen);
                 printf("FILE IS ABLE TO BE READ\n");
 
-                FILE *f_read;
-                f_read = fopen(directory,"rb");
-                
-                fseek(f_read, 0L, SEEK_END);
-                int file_size = ftell(f_read);
-                int reads_required;  
-                char reads_req_str[12];
-                
-                fseek(f_read, 0L, SEEK_SET);
-                
-                if(file_size <= 1024){
-                    reads_required = 1;
-                }
-                else{
-                    //This helps me round up
-                    //Source: https://stackoverflow.com/questions/2745074/fast-ceiling-of-an-integer-division-in-c-c
-                    reads_required = ((file_size + 1023) / 1024);
-                }
-                sprintf(reads_req_str, "%d", reads_required);
-                printf("STR FORM: %s\n",reads_req_str);
-                printf("SIZE:%d\n", strlen(reads_req_str));
-                printf("FILE SIZE: %d\n\n",file_size);
-                printf("READS REQUIRED: %d\n",reads_required);
-                char packet[BUFFER_SIZE];
-                bzero(packet,BUFFER_SIZE);
-                
-                n = sendto(sockfd, reads_req_str, 12, 0, (struct sockaddr *) &clientaddr, clientlen);
-                
-                for(int i = 0; i < reads_required; i++){
+                FILE *input;
+                input = fopen(directory,"rb");
+                char written_convert[10];
+                bzero(int_converter,10);
 
-                    fread(packet,BUFFER_SIZE,1,f_read);
-                    printf("LENGTH: %d\n", strlen(packet));
-                    for(int i = 0; i < BUFFER_SIZE; i++){
-                        printf("\x1B[31m%d",i);
-                        printf("\x1B[0m%x",packet[i]);
+                do{
+                    read = fread(input_buff, 1, sizeof(input_buff), input);
+                    snprintf(int_converter, 10, "%ld", read);
+                    n = sendto(sockfd, int_converter, strlen(int_converter), 0, (struct sockaddr *) &clientaddr, clientlen);
+                    n = sendto(sockfd, input_buff, read, 0, (struct sockaddr *) &clientaddr, clientlen);
+
+                    if(read){
+                        n = recvfrom(sockfd,written_convert,10,0, (struct sockaddr *) &clientaddr,&clientlen);
+                        written = atoi(written_convert);
                     }
-                    n = sendto(sockfd, packet, BUFFER_SIZE, 0, (struct sockaddr *) &clientaddr, clientlen);
-                }
-            
-                printf("\n\n\n");
+                    else{
+                        written = 0;
+                    }
+                    bzero(written_convert,10);
+                    bzero(int_converter,10);
+
+                } while((read > 0) && (written == read));
                 
-                fclose(f_read);
+
+                
+                fclose(input);
             }
 
             
